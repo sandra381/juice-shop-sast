@@ -1,0 +1,76 @@
+# Nombre que se muestra en la pestaña Actions
+name: SAST con Bearer
+
+# Eventos que disparan el workflow
+on:
+  # Se ejecuta en cada push
+  push:
+    # Solo cuando el push es a main
+    branches: [main]
+  # Se ejecuta en Pull Requests
+  pull_request:
+    # Solo si el PR apunta hacia main
+    branches: [main]
+  # Permite ejecutarlo manualmente desde Actions
+  workflow_dispatch:
+
+# Permisos mínimos del GITHUB_TOKEN
+permissions:
+  # Solo lectura del código
+  contents: read
+  # Escritura para publicar en Security > Code scanning
+  security-events: write
+
+# Definición de los trabajos
+jobs:
+  # Identificador del trabajo
+  bearer-scan:
+    # Máquina virtual donde se ejecuta
+    runs-on: ubuntu-latest
+    # Lista de pasos
+    steps:
+      # Paso 1: descargar el código del repositorio
+      - name: Descargar el código
+        # Acción oficial de checkout
+        uses: actions/checkout@v4
+
+      # Paso 2: instalar Bearer CLI
+      - name: Instalar Bearer
+        # Descarga el binario con el script oficial y lo deja en /usr/local/bin
+        run: curl -sfL https://raw.githubusercontent.com/Bearer/bearer/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
+      # Paso 3: escanear todo el repo y generar el SARIF
+      - name: Escanear (SARIF)
+        # --exit-code 0 evita que el paso falle cuando hay hallazgos
+        run: bearer scan . --format sarif --output bearer.sarif --exit-code 0 --skip-path "test/**,cypress/**"
+
+      # Paso 4: generar el reporte HTML
+      - name: Escanear (HTML)
+        # Mismo análisis, ahora en formato HTML
+        run: bearer scan . --format html --output bearer-report.html --exit-code 0 --skip-path "test/**,cypress/**"
+
+      # Paso 5: subir el SARIF a Security > Code scanning
+      - name: Subir SARIF a Code scanning
+        # always() hace que corra aunque un paso anterior haya fallado
+        if: always()
+        # Acción oficial de GitHub para cargar SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        # Parámetros de la acción
+        with:
+          # Archivo SARIF generado por Bearer
+          sarif_file: bearer.sarif
+          # Categoría que identifica este análisis
+          category: bearer
+
+      # Paso 6: guardar el HTML como artefacto descargable
+      - name: Guardar reporte HTML
+        # Se ejecuta siempre, incluso si hubo errores antes
+        if: always()
+        # Acción oficial para subir artefactos
+        uses: actions/upload-artifact@v4
+        # Parámetros del artefacto
+        with:
+          # Nombre del artefacto en la ejecución
+          name: reporte-bearer-html
+          # Archivo que se guarda
+          path: bearer-report.html
